@@ -105,5 +105,8 @@ class Value:
         for val in reversed(topo):
             val._backward()
 
+    def zero_grad(self):
+        self.grad = 0.0
+
     def copy(self):
         return Value(self.data, self._prev, self._op, self.label)

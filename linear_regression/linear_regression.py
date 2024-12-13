@@ -33,23 +33,15 @@ class LinearRegression:
         return history
 
 
-    def _loss(self, x, y):
-        assert x != None, "x cannot be None"
-        assert y is not None, "y cannot be None"
-        assert len(x[0]) == self.num_features, "wrong number of inputs"
-        return self.predict(x) - y
-
-
     def _mean_squared_error(self, X, y): # C = 1/2M sum((h(x) - y)^2)
         assert len(X[0]) == self.num_features, "wrong number of inputs"
         assert len(X) == len(y), "X and y must have same length"
 
         y_pred = self.predict(X)
-        print(len(y), len(y_pred))
         error = np.sum([((y - y_pred)**2) for y, y_pred in zip(y, y_pred)])
-        return error / 2*len(X)
+        return error / (2*len(X))
 
 
     def _reset_grad(self):
         for w in self.weights:
-            w.grad = 0
+            w.zero_grad()
