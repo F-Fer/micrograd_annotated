@@ -36,6 +36,7 @@ class MLP:
 
     def __init__(self, n_inputs, n_outputs): # n_outputs: list of number of neurons per layer
         self.layers = []
+        self.n_inputs = n_inputs
         prev_layer_n_outputs = n_inputs
         for num_neurons in n_outputs:
             self.layers.append(Layer(prev_layer_n_outputs, num_neurons))
