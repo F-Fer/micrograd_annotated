@@ -6,6 +6,11 @@ from collections.abc import Iterable
 from my_micrograd.utils import get_list_dimensions
 
 class Optimizer(ABC):
+
+    def __init__(self, model: MLP, loss_fct=mean_squared_error):
+        self.model = model
+        self.loss_fct = loss_fct
+
     @abstractmethod
     def fit(self, X, y, epochs, *args, **kwargs):
         pass
@@ -26,10 +31,6 @@ class Optimizer(ABC):
         return X_, y_
 
 class BatchGradientDescent(Optimizer):
-
-    def __init__(self, model:MLP, loss_fct=mean_squared_error):
-        self.model = model
-        self.loss_fct = loss_fct
 
     def _step(self, X, y, learning_rate):
         # Set gradients to zero
@@ -63,9 +64,8 @@ class BatchGradientDescent(Optimizer):
 
 class StochasticGradientDescent(Optimizer):
 
-    def __init__(self, model:MLP, momentum=0.0, loss_fct=mean_squared_error):
-        self.model = model
-        self.loss_fct = loss_fct
+    def __init__(self, model:MLP, loss_fct=mean_squared_error, momentum=0.0):
+        super().__init__(model, loss_fct)
         self.momentum = momentum
         self._velocity = {p: 0.0 for p in self.model.parameters()}
 
@@ -102,10 +102,6 @@ class StochasticGradientDescent(Optimizer):
 
 
 class MiniBatchGradientDescent(Optimizer):
-
-    def __init__(self, model:MLP, loss_fct=mean_squared_error):
-        self.model = model
-        self.loss_fct = loss_fct
 
     def _step(self, X, y, learning_rate):
         # Set gradients to zero
@@ -175,8 +171,7 @@ class MiniBatchGradientDescent(Optimizer):
 class AdaGrad(MiniBatchGradientDescent):
 
     def __init__(self, model: MLP, loss_fct=mean_squared_error, epsylon=1e-5):
-        self.model = model
-        self.loss_fct = loss_fct
+        super().__init__(model, loss_fct)
         self._squared_gradients = {p: 0.0 for p in self.model.parameters()}
         self.epsylon = epsylon # Term for numeric stability
 
@@ -186,24 +181,66 @@ class AdaGrad(MiniBatchGradientDescent):
             p.zero_grad()
 
         # Forward pass
-        if isinstance(X, Iterable):
-            y_pred = [self.model(x)[0] for x in X]
-        else:
+        input_dim = get_list_dimensions(X)
+        model_input_len = self.model.n_inputs
+        if input_dim == 1:
+            # Stochastic approach
+            if model_input_len != len(X):
+                raise ValueError(f"X must have same length as the models input layer: {model_input_len}")
             y_pred = self.model(X)[0]
+        elif input_dim >= 2:
+            # (mini)batch approach
+            if not all(len(input) == model_input_len for input in X):
+                raise ValueError(f"Inputs must be of same length as the models input layer: {model_input_len}")
+            y_pred = [self.model(x)[0] for x in X]
+
         loss = self.loss_fct(y_pred, y)
 
         # Backward pass
         loss.backward()
         for p in self.model.parameters():
-            self._squared_gradients[p] += p.grad**2
+            self._squared_gradients[p] += p.grad ** 2
             p.data -= (learning_rate / np.sqrt(self._squared_gradients[p] + self.epsylon)) * p.grad
 
         return loss
 
 
-class RMSprop(Optimizer):
-    def fit(self, X, y, epochs):
-        pass
+class RMSprop(MiniBatchGradientDescent):
+
+    def __init__(self, model: MLP, loss_fct=mean_squared_error, decay_rate=0.9, epsylon=1e-5):
+        super().__init__(model, loss_fct)
+        self.decay_rate = decay_rate
+        self.epsylon = epsylon  # Term for numeric stability
+        self._squared_gradients = {p: 0.0 for p in self.model.parameters()}
+
+    def _step(self, X, y, learning_rate):
+        # Set gradients to zero
+        for p in self.model.parameters():
+            p.zero_grad()
+
+        # Forward pass
+        input_dim = get_list_dimensions(X)
+        model_input_len = self.model.n_inputs
+        if input_dim == 1:
+            # Stochastic approach
+            if model_input_len != len(X):
+                raise ValueError(f"X must have same length as the models input layer: {model_input_len}")
+            y_pred = self.model(X)[0]
+        elif input_dim >= 2:
+            # (mini)batch approach
+            if not all(len(input) == model_input_len for input in X):
+                raise ValueError(f"Inputs must be of same length as the models input layer: {model_input_len}")
+            y_pred = [self.model(x)[0] for x in X]
+
+        loss = self.loss_fct(y_pred, y)
+
+        # Backward pass
+        loss.backward()
+        for p in self.model.parameters():
+            self._squared_gradients[p] = self.decay_rate * self._squared_gradients[p] + (1 - self.decay_rate) * p.grad**2
+            p.data -= (learning_rate / np.sqrt(self._squared_gradients[p] + self.epsylon)) * p.grad
+
+        return loss
 
 
 class Adam(Optimizer):
