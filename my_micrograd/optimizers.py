@@ -30,6 +30,7 @@ class Optimizer(ABC):
             X_[i], y_[i] = X[idx], y[idx]
         return X_, y_
 
+
 class BatchGradientDescent(Optimizer):
 
     def _step(self, X, y, learning_rate):
@@ -88,8 +89,8 @@ class StochasticGradientDescent(Optimizer):
 
     def fit(self, X, y, epochs, learning_rate=1e-3):
         # Parameter check
-        assert all(len(x) == self.model.layers[0].n_inputs for x in X), "Input X has wrong shape"
-        # assert all(isinstance(y_i, Value) for y_i in y), "Each target y_i must be a Value"
+        if not all(len(x) == self.model.layers[0].n_inputs for x in X):
+            raise ValueError("Input X has wrong shape")
 
         history = []
         for _ in range(epochs):
@@ -157,13 +158,10 @@ class MiniBatchGradientDescent(Optimizer):
             batches_per_epoch = int(len(X) / batch_size)
             for _ in range(epochs):
                 X_shuffled, y_shuffled = self._shuffle(X, y)
-                for i in range(batches_per_epoch):
-                    X_ = X_shuffled[i * batch_size:(i + 1) * batch_size]
-                    y_ = y_shuffled[i * batch_size:(i + 1) * batch_size]
-                    history.append(self._step(X_, y_, learning_rate))
-                if len(X) % batch_size != 0:
-                    X_, y_ = X_shuffled[batches_per_epoch*batch_size:][:], y_shuffled[batches_per_epoch*batch_size:]
-                    history.append(self._step(X_, y_, learning_rate))
+                for i in range(0, len(X), batch_size):
+                    X_batch = X_shuffled[i:i + batch_size]
+                    y_batch = y_shuffled[i:i + batch_size]
+                    history.append(self._step(X_batch, y_batch, learning_rate))
 
         return history
 
@@ -243,5 +241,44 @@ class RMSprop(MiniBatchGradientDescent):
         return loss
 
 
-class Adam(Optimizer):
-    pass
+class Adam(MiniBatchGradientDescent):
+
+    def __init__(self, model: MLP, loss_fct=mean_squared_error, decay_rate_momentum=0.9, decay_rate_moving_average=0.9, epsylon=1e-5):
+        super().__init__(model, loss_fct)
+        self.decay_rate_momentum = decay_rate_momentum
+        self.decay_rate_moving_average = decay_rate_moving_average
+        self.epsylon = epsylon  # Term for numeric stability
+        self._squared_gradients = {p: 0.0 for p in self.model.parameters()}
+        self._momentum = {p: 0.0 for p in self.model.parameters()}
+
+    def _step(self, X, y, learning_rate):
+        # Set gradients to zero
+        for p in self.model.parameters():
+            p.zero_grad()
+
+        # Forward pass
+        input_dim = get_list_dimensions(X)
+        model_input_len = self.model.n_inputs
+        if input_dim == 1:
+            # Stochastic approach
+            if model_input_len != len(X):
+                raise ValueError(f"X must have same length as the models input layer: {model_input_len}")
+            y_pred = self.model(X)[0]
+        elif input_dim >= 2:
+            # (mini)batch approach
+            if not all(len(input) == model_input_len for input in X):
+                raise ValueError(f"Inputs must be of same length as the models input layer: {model_input_len}")
+            y_pred = [self.model(x)[0] for x in X]
+
+        loss = self.loss_fct(y_pred, y)
+
+        # Backward pass
+        loss.backward()
+        for p in self.model.parameters():
+            self._momentum[p] = self.decay_rate_momentum * self._momentum[p] + (1 - self.decay_rate_moving_average) * p.grad
+            self._squared_gradients[p] = self.decay_rate_moving_average * self._squared_gradients[p] + (1 - self.decay_rate_moving_average) * p.grad**2
+            m_hat = self._momentum[p] / (1 - self.decay_rate_momentum)
+            v_hat = self._squared_gradients[p] / (1 - self.decay_rate_moving_average)
+            p.data -= (learning_rate / np.sqrt(v_hat + self.epsylon)) * m_hat
+
+        return loss
