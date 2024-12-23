@@ -20,10 +20,10 @@ class Value:
         out = Value(self.data + other.data, (self, other), "+")
 
         def _backward():
-            self.grad += out.grad
-            other.grad += out.grad
-
+            self.grad += 1 * out.grad
+            other.grad += 1 * out.grad
         out._backward = _backward
+
         return out
 
     def __rmul__(self, other):
@@ -64,7 +64,6 @@ class Value:
 
         def _backward():  # f'(x^k) = k * x^(k-1)
             self.grad += out.grad * other * self.data ** (other - 1)
-            pass
 
         out._backward = _backward
         return out
